@@ -100,6 +100,7 @@ def teardown_connection(sock, addr):
 # Reliable methods using 'socket' module
 def stop_and_wait(sock, sender, receiver, file):
     if sender:  # If the application is running as the sender
+        establish_connection(sock, receiver)
         with open(file, 'rb') as file:
             seq_num = 0
             while True:
@@ -118,6 +119,7 @@ def stop_and_wait(sock, sender, receiver, file):
                 seq_num = 1 - seq_num
 
     elif receiver:  # If the application is running as the receiver
+        teardown_connection(sock, sender)
         with open(file, 'wb') as file:
             expected_seq_num = 0
             while True:
@@ -248,7 +250,7 @@ def client(server_addr, server_port, file, reliability_method):
     server_address = (server_addr, server_port)
 
     if reliability_method == 'stop_and_wait':
-        stop_and_wait(client_socket, server_address, file)
+        stop_and_wait(client_socket, server_address, server_address, file)
     elif reliability_method == 'gbn':
         go_back_n(client_socket, server_address, file, WINDOW_SIZE)
     elif reliability_method == 'sr':
@@ -258,14 +260,16 @@ def client(server_addr, server_port, file, reliability_method):
 
 
 def main():
+    import os
+
     args = argument_parser()
+    args.file = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.file))
 
     if args.server:
-        server(args.port, args.file, args.reliability_method)
+        server(args.port, args.file, args.reliability)
     elif args.client:
-        client(args.server_addr, args.server_port, args.file, args.reliability_method)
+        client(args.host, args.port, args.file, args.reliability)
 
 
 if __name__ == '__main__':
     main()
-
