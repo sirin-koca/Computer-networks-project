@@ -72,4 +72,4 @@ To use the SR method, use the -r or --reliability option followed by "sr". For e
 
 ---
 
-DATA2410 Portfolio2 | Group Project | OsloMet 2023 
+DATA2410 Portfolio2 | Group Project | OsloMet 2023 | [sirin-koca](https://github.com/sirin-koca)
