@@ -77,37 +77,50 @@ def receive_packet(sock):
     except socket.timeout:
         return None, None, None, None, None
     except socket.error as e:
-        print(f"Socket error: {e}", file=sys.stderr)
-        return None, None, None, None, None
+        return None, None, None, None, f"Socket error: {e}"
     except Exception as e:
-        print(f"Unexpected error: {e}", file=sys.stderr)
-        return None, None, None, None, None
+        return None, None, None, None, f"Unexpected error: {e}"
 
 
 def establish_connection(sock, addr):
     syn_flag = 1 << 3
     send_packet(sock, addr, 0, 0, syn_flag, b'')
+    sock.settimeout(TIMEOUT)
     seq_num, ack_num, flags, _, _ = receive_packet(sock)
-    if parse_flags(flags)[0]:  # Check if SYN flag is set in the response
-        return True
+    sock.settimeout(None)
+    if flags is not None:
+        if parse_flags(flags)[0]:  # Check if SYN flag is set in the response
+            # Connection established
+            return True
+        else:
+            # Error: SYN flag not set in the response
+            return False, "Error: SYN flag not set in the response"
     else:
-        return False
+        # Error: packet lost or corrupted
+        return False, "Error: Failed to receive response"
 
 
 def teardown_connection(sock, addr):
     fin_flag = 1 << 1
     send_packet(sock, addr, 0, 0, fin_flag, b'')
     seq_num, ack_num, flags, _, _ = receive_packet(sock)
-    if parse_flags(flags)[2]:  # Check if FIN flag is set in the response
-        return True
+    if flags is not None:
+        if parse_flags(flags)[2]:  # Check if FIN flag is set in the response
+            return True
+        else:
+            # Error: FIN flag not set in the response
+            return False, "Error: FIN flag not set in the response"
     else:
-        return False
+        # Error: packet lost or corrupted
+        return False, "Error: Failed to receive response"
 
 
 # Reliable methods using 'socket' module
 def stop_and_wait(sock, sender, receiver, file):
     if sender:  # If the application is running as the sender
-        establish_connection(sock, receiver)
+        success, err_msg = establish_connection(sock, receiver)
+        if not success:
+            return False, err_msg
         with open(file, 'rb') as file:
             seq_num = 0
             while True:
@@ -117,16 +130,28 @@ def stop_and_wait(sock, sender, receiver, file):
 
                 # Send the packet and wait for acknowledgment
                 while True:
-                    send_packet(sock, receiver, seq_num, 0, 0, data)
-                    _, ack_num, _, _, _ = receive_packet(sock)
-                    if ack_num == seq_num:
-                        break
+                    try:
+                        send_packet(sock, receiver, seq_num, 0, 0, data)
+                        sock.settimeout(TIMEOUT)
+                        _, ack_num, _, _, _ = receive_packet(sock)
+                        sock.settimeout(None)
+                        if ack_num == seq_num:
+                            break
+                    except socket.timeout:
+                        # Timeout: retransmit packet
+                        continue
+                    except socket.error as e:
+                        return False, f"Socket error: {e}"
+                    except Exception as e:
+                        return False, f"Unexpected error: {e}"
 
                 # Toggle the sequence number
                 seq_num = 1 - seq_num
 
     elif receiver:  # If the application is running as the receiver
-        teardown_connection(sock, sender)
+        success, err_msg = teardown_connection(sock, sender)
+        if not success:
+            return False, err_msg
         with open(file, 'wb') as file:
             expected_seq_num = 0
             while True:
@@ -138,7 +163,14 @@ def stop_and_wait(sock, sender, receiver, file):
                     expected_seq_num = 1 - expected_seq_num
 
                 # Send acknowledgment
-                send_packet(sock, sender, 0, seq_num, 0, b'')
+                try:
+                    send_packet(sock, sender, 0, seq_num, 0, b'')
+                except socket.error as e:
+                    return False, f"Socket error: {e}"
+                except Exception as e:
+                    return False, f"Unexpected error: {e}"
+
+    return True, None
 
 
 def go_back_n(sock, sender, receiver, file, window_size):
@@ -154,18 +186,34 @@ def go_back_n(sock, sender, receiver, file, window_size):
                     data = file.read(DATA_SIZE)
                     buffer.append(data)
                     if data:
-                        send_packet(sock, receiver, next_seq_num, 0, 0, data)
+                        try:
+                            send_packet(sock, receiver, next_seq_num, 0, 0, data)
+                        except socket.error as e:
+                            return False, f"Socket error: {e}"
+                        except Exception as e:
+                            return False, f"Unexpected error: {e}"
                         next_seq_num += 1
 
                 # Wait for acknowledgments
-                _, ack_num, _, _, _ = receive_packet(sock)
-                base = ack_num + 1
+                try:
+                    _, ack_num, _, _, _ = receive_packet(sock)
+                    base = ack_num + 1
+                except socket.timeout:
+                    # Timeout: retransmit packets from base to next_seq_num
+                    for i in range(base, next_seq_num):
+                        try:
+                            send_packet(sock, receiver, i, 0, 0, buffer[i - base])
+                        except socket.error as e:
+                            return False, f"Socket error: {e}"
+                        except Exception as e:
+                            return False, f"Unexpected error: {e}"
+                except socket.error as e:
+                    return False, f"Socket error: {e}"
+                except Exception as e:
+                    return False, f"Unexpected error: {e}"
 
                 if not buffer[0]:
                     break
-
-                # Remove acknowledged packets from the buffer
-                buffer.pop(0)
 
     elif receiver:
         with open(file, 'wb') as file:
@@ -178,7 +226,17 @@ def go_back_n(sock, sender, receiver, file, window_size):
                     expected_seq_num += 1
 
                 # Send acknowledgment
-                send_packet(sock, sender, 0, seq_num, 0, b'')
+                try:
+                    send_packet(sock, sender, 0, seq_num, 0, b'')
+                except socket.error as e:
+                    return False, f"Socket error: {e}"
+                except Exception as e:
+                    return False, f"Unexpected error: {e}"
+
+                if not data:
+                    break
+
+    return True, None
 
 
 def selective_repeat(sock, sender, receiver, file, window_size):
@@ -195,19 +253,39 @@ def selective_repeat(sock, sender, receiver, file, window_size):
                     data = file.read(DATA_SIZE)
                     buffer.append(data)
                     if data:
-                        send_packet(sock, receiver, next_seq_num, 0, 0, data)
+                        try:
+                            send_packet(sock, receiver, next_seq_num, 0, 0, data)
+                        except socket.error as e:
+                            return False, f"Socket error: {e}"
+                        except Exception as e:
+                            return False, f"Unexpected error: {e}"
                         next_seq_num += 1
 
                 # Wait for acknowledgments
-                _, ack_num, _, _, _ = receive_packet(sock)
-                if ack_num is not None:
-                    acked_packets.add(ack_num)
+                try:
+                    _, ack_num, _, _, _ = receive_packet(sock)
+                    if ack_num is not None:
+                        acked_packets.add(ack_num)
 
-                # Slide the window
-                while base in acked_packets:
-                    buffer.pop(0)
-                    base += 1
-                    acked_packets.remove(base - 1)
+                    # Slide the window
+                    while base in acked_packets:
+                        buffer.pop(0)
+                        base += 1
+                        acked_packets.remove(base - 1)
+                except socket.timeout:
+                    # Timeout: retransmit packets from base to next_seq_num
+                    for i in range(base, next_seq_num):
+                        if i not in acked_packets:
+                            try:
+                                send_packet(sock, receiver, i, 0, 0, buffer[i - base])
+                            except socket.error as e:
+                                return False, f"Socket error: {e}"
+                            except Exception as e:
+                                return False, f"Unexpected error: {e}"
+                except socket.error as e:
+                    return False, f"Socket error: {e}"
+                except Exception as e:
+                    return False, f"Unexpected error: {e}"
 
                 if not buffer[0]:
                     break
@@ -228,8 +306,18 @@ def selective_repeat(sock, sender, receiver, file, window_size):
                         expected_seq_num += 1
 
                 # Send acknowledgment
-                if seq_num is not None:
-                    send_packet(sock, sender, 0, seq_num, 0, b'')
+                try:
+                    if seq_num is not None:
+                        send_packet(sock, sender, 0, seq_num, 0, b'')
+                except socket.error as e:
+                    return False, f"Socket error: {e}"
+                except Exception as e:
+                    return False, f"Unexpected error: {e}"
+
+                if not data:
+                    break
+
+    return True, None
 
 
 def server(port, file, reliability_method):
@@ -238,17 +326,31 @@ def server(port, file, reliability_method):
     server_socket.settimeout(TIMEOUT)
     client_address = None
 
+    print("Server is listening...")
     while not client_address:
-        _, _, _, _, client_address = receive_packet(server_socket)
+        try:
+            _, _, _, _, client_address = receive_packet(server_socket)
+        except socket.timeout:
+            return False, "Server timed out while waiting for a connection"
+        except socket.error as e:
+            return False, f"Socket error: {e}"
+        except Exception as e:
+            return False, f"Unexpected error: {e}"
 
+    # Call the appropriate function based on the specified reliability method
     if reliability_method == 'stop_and_wait':
-        stop_and_wait(server_socket, client_address, file)
+        success, error = stop_and_wait(server_socket, client_address, file)
     elif reliability_method == 'gbn':
-        go_back_n(server_socket, client_address, file, WINDOW_SIZE)
+        success, error = go_back_n(server_socket, client_address, file, WINDOW_SIZE)
     elif reliability_method == 'sr':
-        selective_repeat(server_socket, client_address, file, WINDOW_SIZE)
+        success, error = selective_repeat(server_socket, client_address, file, WINDOW_SIZE)
 
     server_socket.close()
+
+    # Return the success or failure of the operation and an error message, if applicable
+    if not success:
+        return False, error
+    return True, None
 
 
 def client(server_addr, server_port, file, reliability_method):
@@ -257,23 +359,39 @@ def client(server_addr, server_port, file, reliability_method):
     server_address = (server_addr, server_port)
 
     if reliability_method == 'stop_and_wait':
-        stop_and_wait(client_socket, server_address, server_address, file)
+        success, error = stop_and_wait(client_socket, server_address, server_address, file)
     elif reliability_method == 'gbn':
-        go_back_n(client_socket, server_address, file, WINDOW_SIZE)
+        success, error = go_back_n(client_socket, server_address, file, WINDOW_SIZE)
     elif reliability_method == 'sr':
-        selective_repeat(client_socket, server_address, file, WINDOW_SIZE)
+        success, error = selective_repeat(client_socket, server_address, file, WINDOW_SIZE)
 
     client_socket.close()
+    if not success:
+        return False, error
+    return True, None
 
 
 def main():
-    args = argument_parser()
-    args.file = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.file))
+    try:
+        args = argument_parser()
+        args.file = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.file))
 
-    if args.server:
-        server(args.port, args.file, args.reliability)
-    elif args.client:
-        client(args.host, args.port, args.file, args.reliability)
+        if args.server:
+            success, error = server(args.port, args.file, args.reliability)
+            if not success:
+                print(f"Server error: {error}", file=sys.stderr)
+                sys.exit(1)
+        elif args.client:
+            success, error = client(args.host, args.port, args.file, args.reliability)
+            if not success:
+                print(f"Client error: {error}", file=sys.stderr)
+                sys.exit(1)
+    except argparse.ArgumentError as e:
+        print(f"Argument error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == '__main__':
