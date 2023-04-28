@@ -1,4 +1,4 @@
-# DATA2410 - SKELETON KODE - PORTFOLIO2:
+# DATA2410 - PORTFOLIO2:
 
 # Import required libraries
 import argparse
@@ -98,9 +98,9 @@ def teardown_connection(sock, addr):
 
 
 # Reliable methods using 'socket' module
-def stop_and_wait(sock, sender, receiver, filename):
+def stop_and_wait(sock, sender, receiver, file):
     if sender:  # If the application is running as the sender
-        with open(filename, 'rb') as file:
+        with open(file, 'rb') as file:
             seq_num = 0
             while True:
                 data = file.read(DATA_SIZE)
@@ -118,7 +118,7 @@ def stop_and_wait(sock, sender, receiver, filename):
                 seq_num = 1 - seq_num
 
     elif receiver:  # If the application is running as the receiver
-        with open(filename, 'wb') as file:
+        with open(file, 'wb') as file:
             expected_seq_num = 0
             while True:
                 seq_num, _, _, data, _ = receive_packet(sock)
@@ -132,9 +132,9 @@ def stop_and_wait(sock, sender, receiver, filename):
                 send_packet(sock, sender, 0, seq_num, 0, b'')
 
 
-def go_back_n(sock, sender, receiver, filename, window_size):
+def go_back_n(sock, sender, receiver, file, window_size):
     if sender:
-        with open(filename, 'rb') as file:
+        with open(file, 'rb') as file:
             base = 0
             next_seq_num = 0
             buffer = []
@@ -159,7 +159,7 @@ def go_back_n(sock, sender, receiver, filename, window_size):
                 buffer.pop(0)
 
     elif receiver:
-        with open(filename, 'wb') as file:
+        with open(file, 'wb') as file:
             expected_seq_num = 0
 
             while True:
@@ -172,7 +172,7 @@ def go_back_n(sock, sender, receiver, filename, window_size):
                 send_packet(sock, sender, 0, seq_num, 0, b'')
 
 
-def selective_repeat(sock, sender, receiver, filename, window_size):
+def selective_repeat(sock, sender, receiver, file, window_size):
     if sender:
         pass  # Implement selective_repeat sender logic
 
@@ -180,7 +180,7 @@ def selective_repeat(sock, sender, receiver, filename, window_size):
         pass  # Implement selective_repeat receiver logic
 
 
-def server(port, filename, reliability_method):
+def server(port, file, reliability_method):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.bind(('localhost', port))
     server_socket.settimeout(TIMEOUT)
@@ -190,26 +190,26 @@ def server(port, filename, reliability_method):
         _, _, _, _, client_address = receive_packet(server_socket)
 
     if reliability_method == 'stop_and_wait':
-        stop_and_wait(server_socket, client_address, filename)
+        stop_and_wait(server_socket, client_address, file)
     elif reliability_method == 'gbn':
-        go_back_n(server_socket, client_address, filename, WINDOW_SIZE)
+        go_back_n(server_socket, client_address, file, WINDOW_SIZE)
     elif reliability_method == 'sr':
-        selective_repeat(server_socket, client_address, filename, WINDOW_SIZE)
+        selective_repeat(server_socket, client_address, file, WINDOW_SIZE)
 
     server_socket.close()
 
 
-def client(server_addr, server_port, filename, reliability_method):
+def client(server_addr, server_port, file, reliability_method):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     client_socket.settimeout(TIMEOUT)
     server_address = (server_addr, server_port)
 
     if reliability_method == 'stop_and_wait':
-        stop_and_wait(client_socket, server_address, filename)
+        stop_and_wait(client_socket, server_address, file)
     elif reliability_method == 'gbn':
-        go_back_n(client_socket, server_address, filename, WINDOW_SIZE)
+        go_back_n(client_socket, server_address, file, WINDOW_SIZE)
     elif reliability_method == 'sr':
-        selective_repeat(client_socket, server_address, filename, WINDOW_SIZE)
+        selective_repeat(client_socket, server_address, file, WINDOW_SIZE)
 
     client_socket.close()
 
@@ -218,10 +218,11 @@ def main():
     args = argument_parser()
 
     if args.server:
-        server(args.port, args.filename, args.reliability_method)
+        server(args.port, args.file, args.reliability_method)
     elif args.client:
-        client(args.server_addr, args.server_port, args.filename, args.reliability_method)
+        client(args.server_addr, args.server_port, args.file, args.reliability_method)
 
 
 if __name__ == '__main__':
     main()
+
