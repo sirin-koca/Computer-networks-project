@@ -174,10 +174,53 @@ def go_back_n(sock, sender, receiver, file, window_size):
 
 def selective_repeat(sock, sender, receiver, file, window_size):
     if sender:
-        pass  # Implement selective_repeat sender logic
+        with open(file, 'rb') as file:
+            base = 0
+            next_seq_num = 0
+            buffer = []
+            acked_packets = set()
+
+            while True:
+                # Fill the buffer
+                while next_seq_num < base + window_size and (not buffer or buffer[-1]):
+                    data = file.read(DATA_SIZE)
+                    buffer.append(data)
+                    if data:
+                        send_packet(sock, receiver, next_seq_num, 0, 0, data)
+                        next_seq_num += 1
+
+                # Wait for acknowledgments
+                _, ack_num, _, _, _ = receive_packet(sock)
+                if ack_num is not None:
+                    acked_packets.add(ack_num)
+
+                # Slide the window
+                while base in acked_packets:
+                    buffer.pop(0)
+                    base += 1
+                    acked_packets.remove(base - 1)
+
+                if not buffer[0]:
+                    break
 
     elif receiver:
-        pass  # Implement selective_repeat receiver logic
+        with open(file, 'wb') as file:
+            recv_buffer = {}
+            expected_seq_num = 0
+
+            while True:
+                seq_num, _, _, data, _ = receive_packet(sock)
+                if seq_num is not None:
+                    recv_buffer[seq_num] = data
+
+                    # Write consecutive packets to the file
+                    while expected_seq_num in recv_buffer:
+                        file.write(recv_buffer.pop(expected_seq_num))
+                        expected_seq_num += 1
+
+                # Send acknowledgment
+                if seq_num is not None:
+                    send_packet(sock, sender, 0, seq_num, 0, b'')
 
 
 def server(port, file, reliability_method):
