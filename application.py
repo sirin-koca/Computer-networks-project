@@ -4,7 +4,8 @@
 import argparse
 import socket
 import struct
-import time
+import sys
+import os
 
 # DRTP header format
 header_format = 'I I H H'
@@ -74,6 +75,12 @@ def receive_packet(sock):
         seq_num, ack_num, flags, _ = parse_header(header)
         return seq_num, ack_num, flags, data, addr
     except socket.timeout:
+        return None, None, None, None, None
+    except socket.error as e:
+        print(f"Socket error: {e}", file=sys.stderr)
+        return None, None, None, None, None
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
         return None, None, None, None, None
 
 
@@ -260,8 +267,6 @@ def client(server_addr, server_port, file, reliability_method):
 
 
 def main():
-    import os
-
     args = argument_parser()
     args.file = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.file))
 
