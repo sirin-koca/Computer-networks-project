@@ -2,3 +2,9 @@ Terminal1-server: python3 application.py -s --port 5000 -f testfile.txt -r stop_
 
 Terminal2-client: python3 application.py -c --host localhost --port 5000 -f testfile.txt -r stop_and_wait
 
+
+
+Terminal1-server: python3 application.py -s --port 5000 -f maya.jpg -r stop_and_wait
+
+Terminal2-client: python3 application.py -c --host localhost --port 5000 -f maya.jpg -r stop_and_wait
+

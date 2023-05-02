@@ -8,7 +8,7 @@ import sys
 import os
 
 # DRTP header format
-header_format = 'I I H H'
+header_format = '! I I H H'
 
 # Constants
 HEADER_SIZE = 12
@@ -321,9 +321,15 @@ def selective_repeat(sock, sender, receiver, file, window_size):
 
 
 def server(port, file, reliability_method):
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_socket.bind(('localhost', port))
-    server_socket.settimeout(TIMEOUT)
+    try:
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        server_socket.bind(('localhost', port))
+        server_socket.settimeout(TIMEOUT)
+    except socket.error as e:
+        return False, f"Socket error: {e}"
+    except Exception as e:
+        return False, f"Unexpected error: {e}"
+
     client_address = None
 
     print("Server is listening...")
@@ -331,41 +337,57 @@ def server(port, file, reliability_method):
         try:
             _, _, _, _, client_address = receive_packet(server_socket)
         except socket.timeout:
+            server_socket.close()
             return False, "Server timed out while waiting for a connection"
         except socket.error as e:
+            server_socket.close()
             return False, f"Socket error: {e}"
         except Exception as e:
+            server_socket.close()
             return False, f"Unexpected error: {e}"
 
-    # Call the appropriate function based on the specified reliability method
-    if reliability_method == 'stop_and_wait':
-        success, error = stop_and_wait(server_socket, client_address, file)
-    elif reliability_method == 'gbn':
-        success, error = go_back_n(server_socket, client_address, file, WINDOW_SIZE)
-    elif reliability_method == 'sr':
-        success, error = selective_repeat(server_socket, client_address, file, WINDOW_SIZE)
+    success, error = False, None
+    try:
+        if reliability_method == 'stop_and_wait':
+            success, error = stop_and_wait(server_socket, client_address, file)
+        elif reliability_method == 'gbn':
+            success, error = go_back_n(server_socket, client_address, file, WINDOW_SIZE)
+        elif reliability_method == 'sr':
+            success, error = selective_repeat(server_socket, client_address, file, WINDOW_SIZE)
+    except Exception as e:
+        success, error = False, f"Unexpected error during file transfer: {e}"
 
     server_socket.close()
 
-    # Return the success or failure of the operation and an error message, if applicable
     if not success:
         return False, error
     return True, None
 
 
 def client(server_addr, server_port, file, reliability_method):
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    client_socket.settimeout(TIMEOUT)
+    try:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        client_socket.settimeout(TIMEOUT)
+    except socket.error as e:
+        return False, f"Socket error: {e}"
+    except Exception as e:
+        return False, f"Unexpected error: {e}"
+
     server_address = (server_addr, server_port)
 
-    if reliability_method == 'stop_and_wait':
-        success, error = stop_and_wait(client_socket, server_address, server_address, file)
-    elif reliability_method == 'gbn':
-        success, error = go_back_n(client_socket, server_address, file, WINDOW_SIZE)
-    elif reliability_method == 'sr':
-        success, error = selective_repeat(client_socket, server_address, file, WINDOW_SIZE)
+    success, error = False, None
+    try:
+        if reliability_method == 'stop_and_wait':
+            success, error = stop_and_wait(client_socket, server_address, server_address, file)
+        elif reliability_method == 'gbn':
+            success, error = go_back_n(client_socket, server_address, file, WINDOW_SIZE)
+        elif reliability_method == 'sr':
+            success, error = selective_repeat(client_socket, server_address, file, WINDOW_SIZE)
+    except Exception as e:
+        success, error = False, f"Unexpected error during file transfer: {e}"
 
     client_socket.close()
+
     if not success:
         return False, error
     return True, None
@@ -374,7 +396,7 @@ def client(server_addr, server_port, file, reliability_method):
 def main():
     try:
         args = argument_parser()
-        args.file = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), args.file))
+        args.file = os.path.abspath(os.path.join(os.getcwd(), args.file))
 
         if args.server:
             success, error = server(args.port, args.file, args.reliability)
