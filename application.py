@@ -30,7 +30,7 @@ def argument_parser():
     parser = argparse.ArgumentParser(description='UDP file transfer with reliability layer')
     parser.add_argument('-c', '--client', action='store_true', help='Start the application as a client')
     parser.add_argument('-s', '--server', action='store_true', help='Start the application as a server')
-    parser.add_argument('-i', '--ip_address', type=str, help='IP address to connect to or bind to')
+    parser.add_argument('-i', '--IP', type=str, help='IP to connect', default='127.0.0.1')
     parser.add_argument('-p', '--port', type=int, help='port to connect to or bind to (default: 5000)', default=5000)
     parser.add_argument('-f', '--file', help='The path to the file to send or receive')
     parser.add_argument('-b', '--buffer_size', type=int, default=2048, help='Buffer size')
@@ -407,18 +407,24 @@ def main():
         args = argument_parser()
         args.file = os.path.abspath(os.path.join(os.getcwd(), args.file))
 
+        if not args.server and not args.client:
+            print("Error: either -s or -c flag must be provided.")
+            args.print_usage()
+            return
+
         if args.server:
             success, error = server(args.port, args.file, args.reliability)
             if not success:
                 print(f"Server error: {error}", file=sys.stderr)
                 sys.exit(1)
         elif args.client:
-            success, error = client(args.host, args.port, args.file, args.reliability)
+            success, error = client(args.IP, args.port, args.file, args.reliability)
             if not success:
                 print(f"Client error: {error}", file=sys.stderr)
                 sys.exit(1)
+
     except argparse.ArgumentError as e:
-        print(f"Argument error: {e}", file=sys.stderr)
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(f"Unexpected error: {e}", file=sys.stderr)
