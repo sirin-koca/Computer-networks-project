@@ -4,6 +4,7 @@
 import argparse
 import socket
 import struct
+import time
 import sys
 import os
 
@@ -41,8 +42,8 @@ def argument_parser():
 
     args = parser.parse_args()
 
-    if args.server and not args.ip_address:
-        parser.error("Server mode requires the -i/--ip_address flag")
+    if args.server and not args.IP:
+        parser.error("Server mode requires the -i/--IP flag")
 
     if args.client and not args.file:
         parser.error("Client mode requires the -f/--file flag")
@@ -72,7 +73,7 @@ def parse_packet(packet):
 
 
 def send_packet(sock, addr, seq_num, ack_num, flags, data):
-    header = create_header(seq_num, ack_num, flags, len(data))  # it should be window size instead of len(data)
+    header = create_header(seq_num, ack_num, flags, WINDOW_SIZE)
     packet = create_packet(header, data)
     sock.sendto(packet, addr)
 
@@ -100,7 +101,7 @@ def establish_connection(sock, addr):
     if flags is not None:
         if parse_flags(flags)[0]:  # Check if SYN flag is set in the response
             # Connection established
-            return True
+            return True, None
         else:
             # Error: SYN flag not set in the response
             return False, "Error: SYN flag not set in the response"
@@ -127,7 +128,7 @@ def teardown_connection(sock, addr):
 # Reliable methods using 'socket' module
 def stop_and_wait(sock, sender, receiver, file):
     if sender:  # If the application is running as the sender
-        success, err_msg = establish_connection(sock, receiver)
+        success, err_msg = teardown_connection(sock, receiver)
         if not success:
             return False, err_msg
         with open(file, 'rb') as file:
@@ -158,7 +159,7 @@ def stop_and_wait(sock, sender, receiver, file):
                 seq_num = 1 - seq_num
 
     elif receiver:  # If the application is running as the receiver
-        success, err_msg = teardown_connection(sock, sender)
+        success, err_msg = establish_connection(sock, sender)
         if not success:
             return False, err_msg
         with open(file, 'wb') as file:
@@ -204,10 +205,20 @@ def go_back_n(sock, sender, receiver, file, window_size):
                         next_seq_num += 1
 
                 # Wait for acknowledgments
-                try:
-                    _, ack_num, _, _, _ = receive_packet(sock)
-                    base = ack_num + 1
-                except socket.timeout:
+                start_time = time.time()
+                while time.time() - start_time < TIMEOUT:
+                    try:
+                        _, ack_num, _, _, _ = receive_packet(sock)
+                        base = ack_num + 1
+                        break
+                    except socket.timeout:
+                        pass
+                    except socket.error as e:
+                        return False, f"Socket error: {e}"
+                    except Exception as e:
+                        return False, f"Unexpected error: {e}"
+
+                if time.time() - start_time >= TIMEOUT:
                     # Timeout: retransmit packets from base to next_seq_num
                     for i in range(base, next_seq_num):
                         try:
@@ -216,10 +227,6 @@ def go_back_n(sock, sender, receiver, file, window_size):
                             return False, f"Socket error: {e}"
                         except Exception as e:
                             return False, f"Unexpected error: {e}"
-                except socket.error as e:
-                    return False, f"Socket error: {e}"
-                except Exception as e:
-                    return False, f"Unexpected error: {e}"
 
                 if not buffer[0]:
                     break
@@ -325,7 +332,6 @@ def selective_repeat(sock, sender, receiver, file, window_size):
 
                 if not data:
                     break
-
     return True, None
 
 
@@ -338,9 +344,7 @@ def server(port, file, reliability_method):
         return False, f"Socket error: {e}"
     except Exception as e:
         return False, f"Unexpected error: {e}"
-
     client_address = None
-
     print("Server is listening...")
     while not client_address:
         try:
@@ -358,11 +362,11 @@ def server(port, file, reliability_method):
     success, error = False, None
     try:
         if reliability_method == 'stop_and_wait':
-            success, error = stop_and_wait(server_socket, client_address, file)
+            success, error = stop_and_wait(server_socket, client_address, None, file)
         elif reliability_method == 'gbn':
-            success, error = go_back_n(server_socket, client_address, file, WINDOW_SIZE)
+            success, error = go_back_n(client_address, server_socket, file, WINDOW_SIZE)
         elif reliability_method == 'sr':
-            success, error = selective_repeat(server_socket, client_address, file, WINDOW_SIZE)
+            success, error = selective_repeat(client_address, server_socket, file, WINDOW_SIZE)
     except Exception as e:
         success, error = False, f"Unexpected error during file transfer: {e}"
 
@@ -387,7 +391,7 @@ def client(server_addr, server_port, file, reliability_method):
     success, error = False, None
     try:
         if reliability_method == 'stop_and_wait':
-            success, error = stop_and_wait(client_socket, server_address, server_address, file)
+            success, error = stop_and_wait(client_socket, True, server_address, file)
         elif reliability_method == 'gbn':
             success, error = go_back_n(client_socket, server_address, file, WINDOW_SIZE)
         elif reliability_method == 'sr':
