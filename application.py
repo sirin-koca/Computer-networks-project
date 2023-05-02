@@ -30,15 +30,24 @@ def argument_parser():
     parser = argparse.ArgumentParser(description='UDP file transfer with reliability layer')
     parser.add_argument('-c', '--client', action='store_true', help='Start the application as a client')
     parser.add_argument('-s', '--server', action='store_true', help='Start the application as a server')
-    parser.add_argument('--host', type=str, help='host to connect to (default: localhost)', default='localhost')
+    parser.add_argument('-i', '--ip_address', type=str, help='IP address to connect to or bind to')
     parser.add_argument('-p', '--port', type=int, help='port to connect to or bind to (default: 5000)', default=5000)
-    parser.add_argument('-f', '--file', required=True, help='The path to the file to send or receive')
+    parser.add_argument('-f', '--file', help='The path to the file to send or receive')
     parser.add_argument('-b', '--buffer_size', type=int, default=2048, help='Buffer size')
     parser.add_argument('-t', '--timeout', type=int, default=5, help='Timeout in seconds')
     parser.add_argument('-r', '--reliability', choices=['stop_and_wait', 'gbn', 'sr'], required=True,
                         help='Reliability method: stop_and_wait, gbn, or sr')
     parser.add_argument('--test', type=str, choices=['skipack', 'loss'], help='Test case: skipack or loss')
-    return parser.parse_args()
+
+    args = parser.parse_args()
+
+    if args.server and not args.ip_address:
+        parser.error("Server mode requires the -i/--ip_address flag")
+
+    if args.client and not args.file:
+        parser.error("Client mode requires the -f/--file flag")
+
+    return args
 
 
 # DRTP functions: the DRTP header structure using the 'struct' module:
