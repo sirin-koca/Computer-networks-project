@@ -8,7 +8,7 @@ import sys
 import os
 
 # DRTP header format
-header_format = '! I I H H'
+header_format = '!IIHH'
 
 # Constants
 HEADER_SIZE = 12
@@ -63,7 +63,7 @@ def parse_packet(packet):
 
 
 def send_packet(sock, addr, seq_num, ack_num, flags, data):
-    header = create_header(seq_num, ack_num, flags, len(data))
+    header = create_header(seq_num, ack_num, flags, len(data))  # it should be window size instead of len(data)
     packet = create_packet(header, data)
     sock.sendto(packet, addr)
 
