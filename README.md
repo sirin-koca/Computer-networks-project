@@ -1,4 +1,4 @@
-# DATA2410-Portfolio2
+# Computer networks - Portfolio 2
 
 # UDP File Transfer System with Reliability Layer
 
