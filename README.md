@@ -1,6 +1,7 @@
-# Computer networks - Portfolio 2
+# Computer Networks 
 
 # UDP File Transfer System with Reliability Layer
+### Socket programming with Python
 
 This project is a file transfer system implemented in UDP with a reliability layer. The system uses three reliability methods: stop-and-wait, Go-Back-N (GBN), and Selective Repeat (SR). This README file explains how to use the system and its different options.
 
